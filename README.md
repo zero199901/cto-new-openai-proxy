@@ -1,4 +1,119 @@
-# cto.new 批量注册 & OpenAI / Anthropic 反代
+# cto.new Free API Proxy · cto.new 免费反代
+
+**Batch-register cto.new accounts and expose GPT-5.4 / GLM-5.1 as free OpenAI & Anthropic compatible APIs.**
+**批量注册 [cto.new](https://cto.new) 账号，把 GPT-5.4 / GLM-5.1 免费模型以 OpenAI `/v1/chat/completions` 和 Anthropic `/v1/messages` 兼容接口的形式暴露出来。**
+
+[English](#english) · [中文](#中文)
+
+---
+
+## English
+
+### What it does
+
+A Go reverse proxy that turns [cto.new](https://cto.new) (Engine Labs) free chat models into standard **OpenAI** / **Anthropic** compatible APIs, with automatic account rotation from a bulk-registered pool.
+
+- **Models**: `gpt-5.4` (3× quota), `glm-5.1` (2× quota), plus aliases (`gpt-4o`, `claude-sonnet-4.6`, `o1/o3` → all route to `gpt_5_4`)
+- **Protocols**: OpenAI chat completions (stream + non-stream), Anthropic messages (stream + non-stream), multimodal input
+- **Account pool**: LRU selection, auto JWT refresh via Clerk `__client` cookie, quota/dead marking with 6h cooldown, 30s hot-reload of `accounts.jsonl`
+- **Dashboard**: Web UI at `http://127.0.0.1:9091` with tabs for Overview, Accounts, Request Logs, Usage
+- **Bulk registration**: Playwright / Selenium scripts to create accounts, plus a login-based cookie refresher for when `__client` expires
+
+### ⚠️ Important: No agent / function calling support
+
+This proxy **does not** support OpenAI function calling or Anthropic `tool_use`. Reason: cto.new's `/engine-agent/chat` endpoint is itself a full Engine Labs Coding Agent with its own sandbox and system prompt — we can't hijack tool-call protocol at the proxy layer. Even with OpenAI-standard `tools` field injection + aggressive prompt engineering, the upstream model still follows its own agent logic and won't emit structured `tool_calls`.
+
+**Good fit** ✅
+- Plain chat, code explanation / generation, documentation, translation
+- `Plan` mode in opencode / cline / continue.dev (read-only discussion, no file edits)
+- Quick LLM output quality testing
+
+**Poor fit** ❌
+- Build / Agent mode in opencode / cline (requires `read_file` / `bash` / `edit_file` tools)
+- Claude Code / Continue auto-coding tasks
+- Any pipeline depending on function calling
+
+For tool calling, use providers that natively support it (official OpenAI / Anthropic / various relay APIs).
+
+### Quick start
+
+```bash
+# 1. Clone
+git clone https://github.com/1837620622/cto-new-openai-proxy.git
+cd cto-new-openai-proxy
+
+# 2. Register accounts (Playwright, first-run shows browser)
+pip3 install playwright requests
+playwright install chromium
+# ⚠️ Edit cto_register.py: set EMAIL_DOMAIN and TEMPMAIL_RECEIVER
+#    to your own tempmail.plus subdomain, or export env vars:
+#    export CTO_EMAIL_DOMAIN=yoursub.email
+#    export CTO_TEMPMAIL_RECEIVER=yoursub@mailto.plus
+python3 cto_register_pw.py --start 1 --count 5 --show
+
+# 3. Build & run the Go proxy
+cd go-proxy-cto
+go build -o cto-proxy .
+cd ..
+CTO_BASE_DIR="$(pwd)" ./go-proxy-cto/cto-proxy
+# Dashboard → http://127.0.0.1:9091
+```
+
+### Usage examples
+
+**OpenAI compatible**
+```bash
+curl -N http://127.0.0.1:9091/v1/chat/completions \
+  -H 'Authorization: Bearer xs2-cto-secret' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"gpt-5.4","stream":true,"messages":[{"role":"user","content":"hi"}]}'
+```
+
+**Anthropic compatible**
+```bash
+curl -N http://127.0.0.1:9091/v1/messages \
+  -H 'x-api-key: xs2-cto-secret' -H 'anthropic-version: 2023-06-01' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"glm-5.1","stream":true,"max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}'
+```
+
+Change the API key via `PROXY_API_KEY` env var. Default listen address `127.0.0.1:9091` is set in `go-proxy-cto/config.go`.
+
+### Admin endpoints
+
+| Path | Description |
+|---|---|
+| `GET /` | Dashboard UI |
+| `GET /status` | Pool stats JSON |
+| `GET /v1/models` | Supported model list |
+| `GET /admin/accounts` | Full account state (requires API key) |
+| `GET /admin/logs?n=100` | Recent request logs |
+| `GET /admin/log-stats` | 24h aggregated stats |
+| `POST /admin/reload` | Hot-reload `accounts.jsonl` |
+
+### Limitations
+
+- **Turnstile friction**: the `/sign-up` page uses Cloudflare invisible Turnstile; same-IP bulk registration will be throttled (401). Use `cto_login_refresh.py` to recover via `/sign-in` (no Turnstile).
+- **Quota**: each free account gets ~300 requests/day. With a 7-account pool that's ≈700/day for `gpt-5.4` (×3 multiplier) or ≈1050/day for `glm-5.1` (×2).
+- **No native tool use** (see warning above).
+- **Message size**: upstream caps at ~32 KB body. The proxy truncates prompts > 20 KB to keep system prompt + most recent turns.
+
+### Tech stack
+
+- **Go 1.21+** with Gin, gorilla/websocket, zap
+- **Python 3.10+** with Playwright, Selenium, SeleniumBase UC mode, requests
+- **Clerk** authentication (`__client` cookie → session JWT via `POST /v1/client/sessions/{sid}/tokens`)
+- **Engine Labs** upstream: `POST /projects/create-hosted` → `POST /engine-agent/offers` → `POST /engine-agent/chat` → WebSocket stream
+
+See [TECH.md](TECH.md) for protocol details, field-by-field reverse engineering notes, and debugging stories.
+
+### License
+
+MIT. Use at your own risk. Respect cto.new's ToS.
+
+---
+
+## 中文
 
 把 [cto.new](https://cto.new) 的 **GPT-5.4** 和 **GLM-5.1** 免费模型，批量注册拿账号后，以 Go 反代形式暴露成 **OpenAI `/v1/chat/completions`** 和 **Anthropic `/v1/messages`** 兼容接口。
 

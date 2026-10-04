@@ -1,10 +1,10 @@
-version: "1"
+version: '1'
 rules:
-  - base: main
-    upstream: main
-    autoMerge: true
-    autoMergeHardReset: false
-  - base: master
-    upstream: master
-    autoMerge: true
-    autoMergeHardReset: false
+- base: main
+  upstream: 1837620622:main
+  mergeMethod: merge
+  mergeUnstable: false
+- base: master
+  upstream: master
+  autoMerge: true
+  autoMergeHardReset: false
